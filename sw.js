@@ -1,11 +1,14 @@
-const CACHE = 'sfg-v1';
+const CACHE = 'sfg-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.webmanifest',
-  './icon.svg'
+  './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -31,14 +34,25 @@ self.addEventListener('fetch', (e) => {
 
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
+
+    // Navigation requests should get the cached app shell while offline.
+    if (req.mode === 'navigate') {
+      const shell = await cache.match('./index.html');
+      if (shell) return shell;
+    }
+
     const cached = await cache.match(req);
     if (cached) return cached;
+
     try {
       const fresh = await fetch(req);
       if (fresh && fresh.ok && req.method === 'GET') cache.put(req, fresh.clone());
       return fresh;
     } catch {
-      return cached || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      return cached || new Response('Offline', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' }
+      });
     }
   })());
 });
