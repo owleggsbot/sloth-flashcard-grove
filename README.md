@@ -6,7 +6,8 @@ A cozy, offline-first sloth flashcard app with spaced repetition.
 - **No external API keys**
 - **Static GitHub Pages**
 - Import CSV (`front,back`) or JSON
-- Export JSON + copy CSV
+- Export active deck JSON + copy CSV
+- Backup/restore full grove (all decks + SRS scheduling)
 - Shareable deck links (URL contains the deck data)
 
 ## Live
