@@ -22,6 +22,8 @@ const ui = {
   cardFront: $('cardFront'),
   cardBack: $('cardBack'),
   btnFlip: $('btnFlip'),
+  btnSpeak: $('btnSpeak'),
+  btnStopSpeak: $('btnStopSpeak'),
   btnAgain: $('btnAgain'),
   btnHard: $('btnHard'),
   btnGood: $('btnGood'),
@@ -54,6 +56,15 @@ const ui = {
 
   dlgHelp: $('dlgHelp'),
 };
+
+// Optional capability: built-in text-to-speech (no network needed).
+const CAN_SPEAK = ('speechSynthesis' in window) && (typeof SpeechSynthesisUtterance !== 'undefined');
+if (!CAN_SPEAK) {
+  ui.btnSpeak.disabled = true;
+  ui.btnStopSpeak.disabled = true;
+  ui.btnSpeak.title = 'Read aloud is not supported in this browser.';
+  ui.btnStopSpeak.title = 'Read aloud is not supported in this browser.';
+}
 
 const nowMs = () => Date.now();
 const todayISO = () => new Date().toISOString().slice(0,10);
@@ -368,9 +379,35 @@ function renderCard() {
   ui.cardBack.textContent = card.back || '(blank back)';
 }
 
+function stopSpeak() {
+  try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+}
+
+function speak(text) {
+  const t = (text || '').toString().trim();
+  if (!t) return;
+  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
+
+  // Reset any previous utterance for snappy UX.
+  stopSpeak();
+
+  const u = new SpeechSynthesisUtterance(t);
+  u.rate = 0.95;
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  try { window.speechSynthesis.speak(u); } catch { /* ignore */ }
+}
+
+function speakVisibleSide() {
+  // Prefer speaking the visible “answer” side when flipped.
+  const text = session.showingBack ? ui.cardBack.textContent : ui.cardFront.textContent;
+  speak(text);
+}
+
 function flip() {
   const deck = getActiveDeck();
   if (!deck) return;
+  if (CAN_SPEAK) stopSpeak();
 
   const card = deck.cards.find(c => c.id === session.currentCardId) || null;
   if (!card) {
@@ -394,6 +431,7 @@ function grade(quality) {
   if (!deck) return;
   const card = deck.cards.find(c => c.id === session.currentCardId) || null;
   if (!card) return;
+  if (CAN_SPEAK) stopSpeak();
 
   gradeCard(card, quality);
   state.today.reviewed += 1;
@@ -699,6 +737,8 @@ ui.btnShare.addEventListener('click', () => shareActiveDeck());
 ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
 
 ui.btnFlip.addEventListener('click', () => flip());
+ui.btnSpeak.addEventListener('click', () => { if (CAN_SPEAK) speakVisibleSide(); });
+ui.btnStopSpeak.addEventListener('click', () => { if (CAN_SPEAK) stopSpeak(); });
 ui.btnAgain.addEventListener('click', () => grade(0));
 ui.btnHard.addEventListener('click', () => grade(1));
 ui.btnGood.addEventListener('click', () => grade(2));
@@ -716,11 +756,16 @@ ui.btnResetDay.addEventListener('click', () => {
 
 window.addEventListener('keydown', (e) => {
   if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgHelp.open) return;
+
   if (e.key === ' ') { e.preventDefault(); flip(); }
   if (e.key === '1') grade(0);
   if (e.key === '2') grade(1);
   if (e.key === '3') grade(2);
   if (e.key === '4') grade(3);
+
+  // Read aloud (accessibility / hands-free)
+  if ((e.key === 'r' || e.key === 'R') && CAN_SPEAK) { e.preventDefault(); speakVisibleSide(); }
+  if ((e.key === 's' || e.key === 'S') && CAN_SPEAK) { e.preventDefault(); stopSpeak(); }
 });
 
 // SW

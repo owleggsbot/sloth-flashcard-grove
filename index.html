@@ -40,12 +40,14 @@
       </div>
 
       <div class="card__face" id="cardFace" role="group" aria-label="Card content">
-        <div class="card__prompt" id="cardFront">Plant a deck to begin.</div>
-        <div class="card__answer" id="cardBack" hidden></div>
+        <div class="card__prompt" id="cardFront" aria-live="polite">Plant a deck to begin.</div>
+        <div class="card__answer" id="cardBack" aria-live="polite" hidden></div>
       </div>
 
       <div class="card__controls">
         <button id="btnFlip" class="btn btn--primary" type="button">Flip</button>
+        <button id="btnSpeak" class="btn btn--ghost" type="button" title="Read the visible side aloud">Read</button>
+        <button id="btnStopSpeak" class="btn btn--ghost" type="button" title="Stop reading aloud">Stop</button>
         <button id="btnAgain" class="btn" type="button" disabled>Again</button>
         <button id="btnHard" class="btn" type="button" disabled>Hard</button>
         <button id="btnGood" class="btn" type="button" disabled>Good</button>
@@ -182,6 +184,7 @@
           <ul>
             <li><span class="kbd">Space</span> flip</li>
             <li><span class="kbd">1</span> Again • <span class="kbd">2</span> Hard • <span class="kbd">3</span> Good • <span class="kbd">4</span> Easy</li>
+            <li><span class="kbd">R</span> read the visible side aloud • <span class="kbd">S</span> stop reading</li>
           </ul>
         </div>
       </div>
