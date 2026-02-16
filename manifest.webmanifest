@@ -1,0 +1,12 @@
+{
+  "name": "Sloth Flashcard Grove",
+  "short_name": "SlothGrove",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0c1411",
+  "theme_color": "#21402e",
+  "description": "Offline-first sloth flashcards with spaced repetition, import/export, and shareable decks.",
+  "icons": [
+    {"src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Sloth icon">
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#89d3a5" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#21402e" stop-opacity=".95"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="108" height="108" rx="26" fill="url(#g)"/>
+  <g fill="none" stroke="#0c1411" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity=".9">
+    <path d="M37 56c4-12 16-20 27-20s23 8 27 20"/>
+    <path d="M44 80c6 12 14 18 20 18s14-6 20-18"/>
+    <path d="M44 70c0 0 6-8 20-8s20 8 20 8"/>
+  </g>
+  <g fill="#0c1411" opacity=".92">
+    <circle cx="50" cy="64" r="5"/>
+    <circle cx="78" cy="64" r="5"/>
+  </g>
+  <path d="M60 72c3 2 5 2 8 0" fill="none" stroke="#0c1411" stroke-width="5" stroke-linecap="round" opacity=".85"/>
+</svg>

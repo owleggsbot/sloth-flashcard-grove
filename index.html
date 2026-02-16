@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#21402e" />
+  <meta name="description" content="A cozy, offline-first sloth flashcard grove with spaced repetition." />
+  <title>Sloth Flashcard Grove</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to grove</a>
+
+  <header class="top">
+    <div class="brand">
+      <img class="brand__icon" src="./icon.svg" alt="" width="32" height="32" />
+      <div>
+        <div class="brand__title">Sloth Flashcard Grove</div>
+        <div class="brand__tag">Slow learning. Surprisingly effective.</div>
+      </div>
+    </div>
+
+    <nav class="actions" aria-label="Primary">
+      <button id="btnDeck" class="btn" type="button" aria-haspopup="dialog">Decks</button>
+      <button id="btnImport" class="btn" type="button" aria-haspopup="dialog">Import</button>
+      <button id="btnExport" class="btn" type="button">Export</button>
+      <button id="btnShare" class="btn" type="button">Share</button>
+      <button id="btnHelp" class="btn btn--ghost" type="button" aria-haspopup="dialog">Help</button>
+    </nav>
+  </header>
+
+  <main id="main" class="main">
+    <section class="card" aria-label="Study card">
+      <div class="card__meta">
+        <div id="deckLabel" class="pill">Deck: —</div>
+        <div id="dueLabel" class="pill pill--alt">Due now: —</div>
+        <div id="streakLabel" class="pill pill--soft">Today: —</div>
+      </div>
+
+      <div class="card__face" id="cardFace" role="group" aria-label="Card content">
+        <div class="card__prompt" id="cardFront">Plant a deck to begin.</div>
+        <div class="card__answer" id="cardBack" hidden></div>
+      </div>
+
+      <div class="card__controls">
+        <button id="btnFlip" class="btn btn--primary" type="button">Flip</button>
+        <button id="btnAgain" class="btn" type="button" disabled>Again</button>
+        <button id="btnHard" class="btn" type="button" disabled>Hard</button>
+        <button id="btnGood" class="btn" type="button" disabled>Good</button>
+        <button id="btnEasy" class="btn" type="button" disabled>Easy</button>
+      </div>
+
+      <div class="card__footer">
+        <button id="btnAdd" class="link" type="button">+ add cards</button>
+        <span class="dot">•</span>
+        <button id="btnEdit" class="link" type="button">edit deck</button>
+        <span class="dot">•</span>
+        <button id="btnResetDay" class="link" type="button">reset today counter</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Deck garden">
+      <h2 class="h">Deck garden</h2>
+      <div id="deckGrid" class="deckGrid" aria-live="polite"></div>
+
+      <div class="panel__cta">
+        <button id="btnNewDeck" class="btn btn--primary" type="button">Plant new deck</button>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div class="foot__line">
+        Offline-first. No accounts. Your grove stays on this device.
+      </div>
+      <div class="foot__line small">
+        Tip: Use <span class="kbd">Import</span> with CSV (front,back) to migrate a deck.
+      </div>
+    </footer>
+  </main>
+
+  <!-- Deck dialog -->
+  <dialog id="dlgDeck" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Decks</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <div id="deckList" class="deckList"></div>
+      </div>
+      <div class="dlg__foot">
+        <button id="dlgNewDeck" class="btn btn--primary" value="default" type="button">Plant new deck</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import dialog -->
+  <dialog id="dlgImport" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Import</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <p class="p">Paste CSV (<span class="mono">front,back</span>) or JSON exported from this app.</p>
+        <textarea id="importText" class="ta" rows="10" spellcheck="false" placeholder="front,back\nWhat is a sloth? , A slow arboreal mammal\n..."></textarea>
+        <div class="row">
+          <label class="lbl">Target deck</label>
+          <select id="importDeck" class="sel"></select>
+        </div>
+        <div class="row">
+          <label><input id="importAppend" type="checkbox" checked /> Append (don’t overwrite)</label>
+        </div>
+        <div id="importStatus" class="notice" hidden></div>
+      </div>
+      <div class="dlg__foot">
+        <button id="btnDoImport" class="btn btn--primary" value="default" type="button">Import into grove</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Edit dialog -->
+  <dialog id="dlgEdit" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Edit deck</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <div class="row">
+          <label class="lbl" for="deckName">Deck name</label>
+          <input id="deckName" class="inp" autocomplete="off" />
+        </div>
+
+        <details class="details" open>
+          <summary>Cards</summary>
+          <p class="p small">One card per line: <span class="mono">front \t back</span> (tab), or <span class="mono">front | back</span>.</p>
+          <textarea id="cardsText" class="ta" rows="12" spellcheck="false"></textarea>
+        </details>
+
+        <details class="details">
+          <summary>Danger zone</summary>
+          <div class="danger">
+            <button id="btnDeleteDeck" class="btn btn--danger" type="button">Delete this deck</button>
+            <div class="small">This is local-only and irreversible.</div>
+          </div>
+        </details>
+
+        <div id="editStatus" class="notice" hidden></div>
+      </div>
+      <div class="dlg__foot">
+        <button id="btnSaveDeck" class="btn btn--primary" value="default" type="button">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Help dialog -->
+  <dialog id="dlgHelp" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Help</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <div class="help">
+          <h3 class="h3">How the grove works</h3>
+          <ul>
+            <li>Pick a deck. Flip the card. Rate it: Again/Hard/Good/Easy.</li>
+            <li>Everything is saved <b>locally</b> (no account).</li>
+            <li>Spaced repetition uses a simplified SM-2 style schedule.</li>
+          </ul>
+
+          <h3 class="h3">Sharing</h3>
+          <ul>
+            <li><b>Share</b> creates a read-only deck link (URL contains data). Anyone can open it and import.</li>
+            <li><b>Export</b> downloads JSON (best) and copies CSV (nice).</li>
+          </ul>
+
+          <h3 class="h3">Keyboard</h3>
+          <ul>
+            <li><span class="kbd">Space</span> flip</li>
+            <li><span class="kbd">1</span> Again • <span class="kbd">2</span> Hard • <span class="kbd">3</span> Good • <span class="kbd">4</span> Easy</li>
+          </ul>
+        </div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn btn--primary" value="default">Got it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
