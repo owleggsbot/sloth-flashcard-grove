@@ -158,6 +158,42 @@
     </form>
   </dialog>
 
+  <!-- Share dialog -->
+  <dialog id="dlgShare" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Share deck</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <p class="p">This creates a <b>read-only</b> share link that contains the deck data. The recipient can open it and import.</p>
+
+        <div class="row">
+          <label class="lbl" for="shareUrl">Share link</label>
+          <input id="shareUrl" class="inp mono" readonly />
+        </div>
+
+        <div class="sharegrid">
+          <div class="sharegrid__qr">
+            <canvas id="shareQr" class="qr" width="256" height="256" aria-label="QR code"></canvas>
+            <div class="small">Tip: scan on another device.</div>
+          </div>
+          <div class="sharegrid__actions">
+            <button id="btnCopyShare" class="btn btn--primary" type="button">Copy link</button>
+            <button id="btnDownloadQr" class="btn" type="button">Download QR PNG</button>
+            <button id="btnShareNative" class="btn btn--ghost" type="button">Share…</button>
+            <div class="small">“Share…” uses your device share sheet if available.</div>
+          </div>
+        </div>
+
+        <div id="shareStatus" class="notice" hidden></div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn" value="default">Done</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Help dialog -->
   <dialog id="dlgHelp" class="dlg">
     <form method="dialog" class="dlg__frame">
@@ -194,6 +230,7 @@
     </form>
   </dialog>
 
+  <script src="./vendor/qrcode.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

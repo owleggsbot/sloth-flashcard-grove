@@ -54,6 +54,14 @@ const ui = {
   btnSaveDeck: $('btnSaveDeck'),
   btnDeleteDeck: $('btnDeleteDeck'),
 
+  dlgShare: $('dlgShare'),
+  shareUrl: $('shareUrl'),
+  shareQr: $('shareQr'),
+  btnCopyShare: $('btnCopyShare'),
+  btnDownloadQr: $('btnDownloadQr'),
+  btnShareNative: $('btnShareNative'),
+  shareStatus: $('shareStatus'),
+
   dlgHelp: $('dlgHelp'),
 };
 
@@ -558,10 +566,7 @@ function csvEscape(s) {
   return t;
 }
 
-function shareActiveDeck() {
-  const deck = getActiveDeck();
-  if (!deck) return;
-
+function buildShareUrl(deck) {
   const data = {
     v: 1,
     name: deck.name,
@@ -572,10 +577,74 @@ function shareActiveDeck() {
   const b64 = base64UrlEncode(utf8Encode(json));
   const url = new URL(location.href);
   url.hash = `share=${b64}`;
+  return url.toString();
+}
 
-  const text = url.toString();
-  navigator.clipboard?.writeText(text).catch(()=>{});
-  alert('Share link copied (URL contains deck data). Recipient can open it and Import.');
+function renderQr(text, canvas) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // qrcode-generator provides a global `qrcode` function.
+  // Type 0 = auto.
+  let qr;
+  try {
+    // @ts-ignore
+    qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+  } catch {
+    // If the library is missing, fail silently.
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  const count = qr.getModuleCount();
+  const quiet = 3;
+  const modules = count + quiet * 2;
+
+  // Fit modules into the canvas.
+  const size = Math.min(canvas.width, canvas.height);
+  const scale = Math.floor(size / modules);
+  const drawSize = scale * modules;
+  const ox = Math.floor((canvas.width - drawSize) / 2);
+  const oy = Math.floor((canvas.height - drawSize) / 2);
+
+  // Background
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Modules
+  ctx.fillStyle = '#0d1b12';
+  for (let r = 0; r < count; r++) {
+    for (let c = 0; c < count; c++) {
+      if (!qr.isDark(r, c)) continue;
+      const x = ox + (c + quiet) * scale;
+      const y = oy + (r + quiet) * scale;
+      ctx.fillRect(x, y, scale, scale);
+    }
+  }
+}
+
+function openShareDialog() {
+  const deck = getActiveDeck();
+  if (!deck) return;
+
+  const url = buildShareUrl(deck);
+  ui.shareUrl.value = url;
+  renderQr(url, ui.shareQr);
+  setNotice(ui.shareStatus, '');
+  ui.shareStatus.hidden = true;
+
+  openDialog(ui.dlgShare);
+
+  // Best-effort: copy immediately for convenience.
+  navigator.clipboard?.writeText(url).then(() => {
+    setNotice(ui.shareStatus, 'Link copied.');
+  }).catch(() => {
+    // ignore
+  });
 }
 
 function utf8Encode(str) {
@@ -733,8 +802,53 @@ ui.btnNewDeck.addEventListener('click', () => plantNewDeck());
 ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice(ui.importStatus,''); updateImportDeckOptions(); openDialog(ui.dlgImport); });
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
-ui.btnShare.addEventListener('click', () => shareActiveDeck());
+ui.btnShare.addEventListener('click', () => openShareDialog());
 ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
+
+ui.btnCopyShare.addEventListener('click', () => {
+  const url = ui.shareUrl.value || '';
+  if (!url) return;
+  navigator.clipboard?.writeText(url).then(() => {
+    setNotice(ui.shareStatus, 'Link copied.');
+  }).catch(() => {
+    setNotice(ui.shareStatus, 'Could not copy automatically. Select and copy the link manually.');
+  });
+});
+
+ui.btnDownloadQr.addEventListener('click', async () => {
+  const c = ui.shareQr;
+  if (!c) return;
+  try {
+    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('no blob');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sloth-flashcard-grove-qr.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch {
+    setNotice(ui.shareStatus, 'Could not download QR in this browser.');
+  }
+});
+
+ui.btnShareNative.addEventListener('click', async () => {
+  const url = ui.shareUrl.value || '';
+  const deck = getActiveDeck();
+  if (!url) return;
+  if (!navigator.share) {
+    setNotice(ui.shareStatus, 'Native sharing is not available here. Use Copy link instead.');
+    return;
+  }
+  try {
+    await navigator.share({
+      title: 'Sloth Flashcard Grove — shared deck',
+      text: deck ? `Shared deck: ${deck.name}` : 'Shared deck',
+      url,
+    });
+  } catch {
+    // user cancelled or failed
+  }
+});
 
 ui.btnFlip.addEventListener('click', () => flip());
 ui.btnSpeak.addEventListener('click', () => { if (CAN_SPEAK) speakVisibleSide(); });

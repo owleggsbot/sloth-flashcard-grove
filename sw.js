@@ -1,9 +1,10 @@
-const CACHE = 'sfg-v1';
+const CACHE = 'sfg-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './vendor/qrcode.js',
   './manifest.webmanifest',
   './icon.svg'
 ];

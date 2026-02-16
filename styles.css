@@ -138,6 +138,12 @@ a{color:inherit}
 .dlg__body{padding:10px 0 4px}
 .dlg__foot{display:flex;justify-content:flex-end;gap:10px;padding-top:10px}
 
+.sharegrid{display:grid;grid-template-columns: 320px 1fr;gap:14px;align-items:start}
+@media (max-width: 760px){.sharegrid{grid-template-columns:1fr}}
+.sharegrid__qr{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.qr{width:256px;height:256px;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.sharegrid__actions{display:flex;flex-direction:column;gap:10px}
+
 .p{margin:0 0 10px 0;color:var(--muted)}
 .row{display:grid;grid-template-columns: 120px 1fr;gap:10px;align-items:center;margin:10px 0}
 @media (max-width: 560px){.row{grid-template-columns:1fr}}
