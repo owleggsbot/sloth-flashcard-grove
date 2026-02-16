@@ -26,6 +26,8 @@
       <button id="btnDeck" class="btn" type="button" aria-haspopup="dialog">Decks</button>
       <button id="btnImport" class="btn" type="button" aria-haspopup="dialog">Import</button>
       <button id="btnExport" class="btn" type="button">Export</button>
+      <button id="btnBackup" class="btn" type="button">Backup</button>
+      <button id="btnRestore" class="btn" type="button" aria-haspopup="dialog">Restore</button>
       <button id="btnShare" class="btn" type="button">Share</button>
       <button id="btnHelp" class="btn btn--ghost" type="button" aria-haspopup="dialog">Help</button>
     </nav>
@@ -121,6 +123,33 @@
     </form>
   </dialog>
 
+  <!-- Restore dialog -->
+  <dialog id="dlgRestore" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Restore grove</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <p class="p">Choose a <span class="mono">.sfg.grove.json</span> backup file exported from this app.</p>
+        <input id="restoreFile" class="inp" type="file" accept="application/json,.json" />
+
+        <div class="row">
+          <label class="lbl">Restore mode</label>
+          <div>
+            <label><input type="radio" name="restoreMode" value="merge" checked /> Merge (keep existing decks)</label><br />
+            <label><input type="radio" name="restoreMode" value="overwrite" /> Overwrite (replace this device’s grove)</label>
+          </div>
+        </div>
+
+        <div id="restoreStatus" class="notice" hidden></div>
+      </div>
+      <div class="dlg__foot">
+        <button id="btnDoRestore" class="btn btn--primary" value="default" type="button">Restore</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Edit dialog -->
   <dialog id="dlgEdit" class="dlg">
     <form method="dialog" class="dlg__frame">
@@ -172,10 +201,12 @@
             <li>Spaced repetition uses a simplified SM-2 style schedule.</li>
           </ul>
 
-          <h3 class="h3">Sharing</h3>
+          <h3 class="h3">Sharing & backup</h3>
           <ul>
             <li><b>Share</b> creates a read-only deck link (URL contains data). Anyone can open it and import.</li>
-            <li><b>Export</b> downloads JSON (best) and copies CSV (nice).</li>
+            <li><b>Export</b> downloads the <i>active deck</i> (JSON + copies CSV). This does <i>not</i> include SRS scheduling.</li>
+            <li><b>Backup</b> downloads a full-grove backup (all decks + SRS scheduling).</li>
+            <li><b>Restore</b> loads a backup file and either <b>merge</b>s or <b>overwrite</b>s.</li>
           </ul>
 
           <h3 class="h3">Keyboard</h3>

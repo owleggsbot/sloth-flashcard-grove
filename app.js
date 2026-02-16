@@ -13,6 +13,8 @@ const ui = {
   btnImport: $('btnImport'),
   btnExport: $('btnExport'),
   btnShare: $('btnShare'),
+  btnBackup: $('btnBackup'),
+  btnRestore: $('btnRestore'),
   btnHelp: $('btnHelp'),
 
   deckLabel: $('deckLabel'),
@@ -53,6 +55,11 @@ const ui = {
   btnDeleteDeck: $('btnDeleteDeck'),
 
   dlgHelp: $('dlgHelp'),
+
+  dlgRestore: $('dlgRestore'),
+  restoreFile: $('restoreFile'),
+  restoreStatus: $('restoreStatus'),
+  btnDoRestore: $('btnDoRestore'),
 };
 
 const nowMs = () => Date.now();
@@ -514,6 +521,111 @@ function exportActiveDeck() {
   navigator.clipboard?.writeText(csv).catch(()=>{});
 }
 
+function exportGroveBackup() {
+  // Full-fidelity backup: all decks + full SRS scheduling + today counter.
+  // This is the thing you want for moving devices.
+  /** @type {State} */
+  const snapshot = JSON.parse(JSON.stringify(state));
+
+  const payload = {
+    kind: 'sfg-grove',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    state: snapshot,
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sloth-flashcard-grove.backup.${todayISO()}.sfg.grove.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function restoreGroveFromFile(mode) {
+  const file = ui.restoreFile.files?.[0] || null;
+  if (!file) { setNotice(ui.restoreStatus, 'Pick a backup file first.'); return; }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = String(reader.result || '');
+      const data = JSON.parse(text);
+      const payload = (data?.kind === 'sfg-grove') ? data : null;
+      const imported = payload?.state;
+      if (!payload || payload.version !== 1 || !imported) {
+        setNotice(ui.restoreStatus, 'That file doesn’t look like a Sloth Flashcard Grove backup.');
+        return;
+      }
+
+      if (!Array.isArray(imported.decks)) {
+        setNotice(ui.restoreStatus, 'Backup is missing decks.');
+        return;
+      }
+
+      // Normalize imported shape a tiny bit; don’t be too clever.
+      /** @type {State} */
+      const next = {
+        version: 1,
+        activeDeckId: imported.activeDeckId ?? null,
+        decks: imported.decks,
+        today: imported.today?.date ? imported.today : { date: todayISO(), reviewed: 0 },
+      };
+
+      if (mode === 'overwrite') {
+        const ok = confirm('Overwrite this device’s entire grove? This cannot be undone.');
+        if (!ok) { setNotice(ui.restoreStatus, 'Cancelled.'); return; }
+        state = next;
+        normalizeTodayCounter();
+        // If active deck is missing, pick first.
+        if (state.activeDeckId && !state.decks.find(d => d.id === state.activeDeckId)) state.activeDeckId = state.decks[0]?.id || null;
+        saveState();
+        renderAll();
+        setNotice(ui.restoreStatus, `Restored ${state.decks.length} deck(s).`);
+        return;
+      }
+
+      // Merge: keep existing, add imported decks (renaming IDs to avoid collisions).
+      const existingNames = new Set(state.decks.map(d => d.name));
+      let added = 0;
+
+      for (const d of next.decks) {
+        if (!d || !Array.isArray(d.cards)) continue;
+
+        const deck = JSON.parse(JSON.stringify(d));
+        deck.id = uid();
+
+        let baseName = (deck.name || 'Restored deck').toString().trim() || 'Restored deck';
+        if (existingNames.has(baseName)) {
+          const suffix = ` (restored ${todayISO()})`;
+          baseName = (baseName + suffix).slice(0, 80);
+        }
+        deck.name = baseName;
+        existingNames.add(deck.name);
+
+        for (const c of deck.cards) {
+          c.id = uid();
+          // Ensure SRS exists; if missing, make a fresh one.
+          if (!c.srs || typeof c.srs.due !== 'number') c.srs = newCard(c.front || '', c.back || '').srs;
+        }
+
+        state.decks.push(deck);
+        added += 1;
+      }
+
+      if (!state.activeDeckId) state.activeDeckId = state.decks[0]?.id || null;
+      saveState();
+      renderAll();
+      setNotice(ui.restoreStatus, `Merged ${added} deck(s) into your grove.`);
+    } catch {
+      setNotice(ui.restoreStatus, 'Couldn’t read that file (invalid JSON).');
+    }
+  };
+  reader.onerror = () => setNotice(ui.restoreStatus, 'Couldn’t read that file.');
+  reader.readAsText(file);
+}
+
 function csvEscape(s) {
   const t = (s ?? '').toString().replace(/\r?\n/g,' ');
   if (/[\",\n]/.test(t)) return `"${t.replace(/"/g,'""')}"`;
@@ -604,6 +716,9 @@ function doImport() {
       const data = JSON.parse(text);
       if (data?.kind === 'sfg-deck' && data?.deck?.cards) {
         cards = data.deck.cards.map(c => [c.front || '', c.back || '']);
+      } else if (data?.kind === 'sfg-grove') {
+        setNotice(ui.importStatus, 'That’s a full-grove backup. Use Restore instead.');
+        return;
       } else if (Array.isArray(data)) {
         cards = data.map(r => [r.front || '', r.back || '']);
       } else {
@@ -695,6 +810,12 @@ ui.btnNewDeck.addEventListener('click', () => plantNewDeck());
 ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice(ui.importStatus,''); updateImportDeckOptions(); openDialog(ui.dlgImport); });
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
+ui.btnBackup.addEventListener('click', () => exportGroveBackup());
+ui.btnRestore.addEventListener('click', () => { ui.restoreFile.value = ''; setNotice(ui.restoreStatus,''); openDialog(ui.dlgRestore); });
+ui.btnDoRestore.addEventListener('click', () => {
+  const mode = document.querySelector('input[name="restoreMode"]:checked')?.value || 'merge';
+  restoreGroveFromFile(mode);
+});
 ui.btnShare.addEventListener('click', () => shareActiveDeck());
 ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
 
