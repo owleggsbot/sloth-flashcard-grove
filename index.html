@@ -32,6 +32,7 @@
   </header>
 
   <main id="main" class="main">
+    <div id="srAnnounce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
     <section class="card" aria-label="Study card">
       <div class="card__meta">
         <div id="deckLabel" class="pill">Deck: —</div>
@@ -45,13 +46,13 @@
       </div>
 
       <div class="card__controls">
-        <button id="btnFlip" class="btn btn--primary" type="button">Flip</button>
-        <button id="btnSpeak" class="btn btn--ghost" type="button" title="Read the visible side aloud">Read</button>
-        <button id="btnStopSpeak" class="btn btn--ghost" type="button" title="Stop reading aloud">Stop</button>
-        <button id="btnAgain" class="btn" type="button" disabled>Again</button>
-        <button id="btnHard" class="btn" type="button" disabled>Hard</button>
-        <button id="btnGood" class="btn" type="button" disabled>Good</button>
-        <button id="btnEasy" class="btn" type="button" disabled>Easy</button>
+        <button id="btnFlip" class="btn btn--primary" type="button" aria-label="Flip card (Space)">Flip</button>
+        <button id="btnSpeak" class="btn btn--ghost" type="button" title="Read the visible side aloud" aria-label="Read visible side aloud (R)">Read</button>
+        <button id="btnStopSpeak" class="btn btn--ghost" type="button" title="Stop reading aloud" aria-label="Stop reading aloud (S)">Stop</button>
+        <button id="btnAgain" class="btn" type="button" disabled aria-label="Grade: Again (1)">Again</button>
+        <button id="btnHard" class="btn" type="button" disabled aria-label="Grade: Hard (2)">Hard</button>
+        <button id="btnGood" class="btn" type="button" disabled aria-label="Grade: Good (3)">Good</button>
+        <button id="btnEasy" class="btn" type="button" disabled aria-label="Grade: Easy (4)">Easy</button>
       </div>
 
       <div class="card__footer">
@@ -175,13 +176,13 @@
 
         <div class="sharegrid">
           <div class="sharegrid__qr">
-            <canvas id="shareQr" class="qr" width="256" height="256" aria-label="QR code"></canvas>
+            <canvas id="shareQr" class="qr" width="256" height="256" role="img" aria-label="QR code for share link"></canvas>
             <div class="small">Tip: scan on another device.</div>
           </div>
           <div class="sharegrid__actions">
-            <button id="btnCopyShare" class="btn btn--primary" type="button">Copy link</button>
-            <button id="btnDownloadQr" class="btn" type="button">Download QR PNG</button>
-            <button id="btnShareNative" class="btn btn--ghost" type="button">Share…</button>
+            <button id="btnCopyShare" class="btn btn--primary" type="button" aria-label="Copy share link">Copy link</button>
+            <button id="btnDownloadQr" class="btn" type="button" aria-label="Download QR code as PNG">Download QR PNG</button>
+            <button id="btnShareNative" class="btn btn--ghost" type="button" aria-label="Open device share sheet">Share…</button>
             <div class="small">“Share…” uses your device share sheet if available.</div>
           </div>
         </div>

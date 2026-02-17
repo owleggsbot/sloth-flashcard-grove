@@ -95,6 +95,18 @@ a{color:inherit}
 .btn:hover{border-color:rgba(255,255,255,.25);transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+/* Visible focus for keyboard users */
+:where(.btn,.link,.inp,.ta,.sel,summary,[tabindex]):focus-visible{
+  outline:3px solid rgba(137,211,165,.85);
+  outline-offset:3px;
+}
+
+.sr-only{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;}
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{animation:none !important; transition:none !important;}
+}
 .btn--primary{background: linear-gradient(180deg, rgba(137,211,165,.25), rgba(137,211,165,.12)); border-color:rgba(137,211,165,.35)}
 .btn--ghost{background:transparent}
 .btn--danger{background: rgba(255,107,107,.15); border-color: rgba(255,107,107,.35)}
