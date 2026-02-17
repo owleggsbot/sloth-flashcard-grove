@@ -13,6 +13,7 @@ const ui = {
   btnImport: $('btnImport'),
   btnExport: $('btnExport'),
   btnShare: $('btnShare'),
+  btnAnalytics: $('btnAnalytics'),
   btnHelp: $('btnHelp'),
 
   deckLabel: $('deckLabel'),
@@ -61,6 +62,17 @@ const ui = {
   btnDownloadQr: $('btnDownloadQr'),
   btnShareNative: $('btnShareNative'),
   shareStatus: $('shareStatus'),
+
+  dlgAnalytics: $('dlgAnalytics'),
+  analyticsEmpty: $('analyticsEmpty'),
+  analyticsBody: $('analyticsBody'),
+  statCards: $('statCards'),
+  statDueNow: $('statDueNow'),
+  statLapses: $('statLapses'),
+  statDaily: $('statDaily'),
+  chartDue30: $('chartDue30'),
+  chartEase: $('chartEase'),
+  btnRefreshAnalytics: $('btnRefreshAnalytics'),
 
   dlgHelp: $('dlgHelp'),
 };
@@ -235,6 +247,130 @@ function openDialog(dlg) {
 
 function closeDialog(dlg) {
   try { dlg.close(); } catch { /* ignore */ }
+}
+
+// --- Analytics (no external libs; inline SVG) ---
+const DAY_MS = 24 * 60 * 60 * 1000;
+function startOfTodayMs() {
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  return d.getTime();
+}
+
+function svgBarChart({ values, labels, height = 120, barColor = 'rgba(137,211,165,.75)', gridColor = 'rgba(255,255,255,.10)' }) {
+  const n = values.length;
+  const max = Math.max(1, ...values);
+  const w = Math.max(320, n * 14);
+  const padL = 28;
+  const padR = 12;
+  const padT = 10;
+  const padB = 22;
+  const plotW = w - padL - padR;
+  const plotH = height - padT - padB;
+  const barW = plotW / n;
+
+  const grid = [0.25, 0.5, 0.75, 1].map((f) => {
+    const y = padT + plotH * (1 - f);
+    const v = Math.round(max * f);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="${gridColor}" stroke-width="1" />
+      <text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="10" fill="rgba(255,255,255,.55)" font-family="var(--sans)">${v}</text>`;
+  }).join('');
+
+  const bars = values.map((v, i) => {
+    const bh = Math.round((v / max) * plotH);
+    const x = padL + i * barW + 1;
+    const y = padT + (plotH - bh);
+    const bw = Math.max(1, Math.floor(barW - 2));
+    const rx = 3;
+    const lbl = labels?.[i] || '';
+    const title = `${lbl || i}: ${v}`;
+    return `
+      <g>
+        <title>${escapeHtml(title)}</title>
+        <rect x="${x}" y="${y}" width="${bw}" height="${Math.max(1,bh)}" rx="${rx}" fill="${barColor}" />
+      </g>`;
+  }).join('');
+
+  const xlabels = labels ? labels.map((lbl, i) => {
+    if (!lbl) return '';
+    // show only some labels to avoid clutter
+    const show = (i === 0) || (i === labels.length - 1) || (labels.length <= 10) || (i % 5 === 0);
+    if (!show) return '';
+    const x = padL + i * barW + barW / 2;
+    return `<text x="${x}" y="${height-6}" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.55)" font-family="var(--sans)">${escapeHtml(lbl)}</text>`;
+  }).join('') : '';
+
+  return `
+    <svg viewBox="0 0 ${w} ${height}" width="100%" height="${height}" role="img" aria-hidden="false" focusable="false">
+      ${grid}
+      ${bars}
+      ${xlabels}
+    </svg>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+}
+
+function renderAnalytics() {
+  const deck = getActiveDeck();
+  if (!deck) {
+    setNotice(ui.analyticsEmpty, 'Plant or select a deck first.');
+    ui.analyticsBody.hidden = true;
+    return;
+  }
+
+  ui.analyticsBody.hidden = false;
+  setNotice(ui.analyticsEmpty, '');
+
+  const tNow = nowMs();
+  const cards = deck.cards || [];
+  const dueNow = cards.filter(c => c.srs.due <= tNow).length;
+  const lapses = cards.reduce((acc, c) => acc + (c.srs.lapses || 0), 0);
+
+  // Due histogram next 30 days (bar 0 = today + overdue)
+  const days = 30;
+  const t0 = startOfTodayMs();
+  const dueBins = Array.from({ length: days }, () => 0);
+  for (const c of cards) {
+    const due = c?.srs?.due ?? tNow;
+    let idx = 0;
+    if (due > tNow) {
+      idx = Math.floor((due - t0) / DAY_MS);
+      idx = clamp(idx, 0, days - 1);
+    }
+    dueBins[idx] += 1;
+  }
+
+  const totalDue7 = dueBins.slice(0, 7).reduce((a,b)=>a+b, 0);
+  const suggestedDaily = Math.max(1, Math.ceil(totalDue7 / 7));
+
+  ui.statCards.textContent = String(cards.length);
+  ui.statDueNow.textContent = String(dueNow);
+  ui.statLapses.textContent = String(lapses);
+  ui.statDaily.textContent = String(suggestedDaily);
+
+  const labels30 = Array.from({ length: days }, (_, i) => i === 0 ? '0' : String(i));
+  ui.chartDue30.innerHTML = svgBarChart({ values: dueBins, labels: labels30, height: 130, barColor: 'rgba(255,209,138,.70)' });
+
+  // Ease distribution buckets
+  const buckets = [0,0,0,0,0];
+  const bucketLabels = ['<1.6', '1.6–2.0', '2.0–2.4', '2.4–2.8', '≥2.8'];
+  for (const c of cards) {
+    const e = Number(c?.srs?.ease ?? 2.5);
+    if (e < 1.6) buckets[0]++;
+    else if (e < 2.0) buckets[1]++;
+    else if (e < 2.4) buckets[2]++;
+    else if (e < 2.8) buckets[3]++;
+    else buckets[4]++;
+  }
+  ui.chartEase.innerHTML = svgBarChart({ values: buckets, labels: bucketLabels, height: 120, barColor: 'rgba(137,211,165,.75)' });
+}
+
+function openAnalytics() {
+  renderAnalytics();
+  openDialog(ui.dlgAnalytics);
 }
 
 function updateImportDeckOptions() {
@@ -803,6 +939,8 @@ ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
 ui.btnShare.addEventListener('click', () => openShareDialog());
+ui.btnAnalytics.addEventListener('click', () => openAnalytics());
+ui.btnRefreshAnalytics.addEventListener('click', () => renderAnalytics());
 ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
 
 ui.btnCopyShare.addEventListener('click', () => {
@@ -869,7 +1007,7 @@ ui.btnResetDay.addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgHelp.open) return;
+  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgShare.open || ui.dlgAnalytics.open || ui.dlgHelp.open) return;
 
   if (e.key === ' ') { e.preventDefault(); flip(); }
   if (e.key === '1') grade(0);
