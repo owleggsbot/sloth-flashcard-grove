@@ -63,6 +63,8 @@ const ui = {
   shareStatus: $('shareStatus'),
 
   dlgHelp: $('dlgHelp'),
+
+  srAnnounce: $('srAnnounce'),
 };
 
 // Optional capability: built-in text-to-speech (no network needed).
@@ -73,6 +75,13 @@ if (!CAN_SPEAK) {
   ui.btnSpeak.title = 'Read aloud is not supported in this browser.';
   ui.btnStopSpeak.title = 'Read aloud is not supported in this browser.';
 }
+
+// Dialog accessibility: focus management.
+installDialogFocusReturn(ui.dlgDeck);
+installDialogFocusReturn(ui.dlgImport);
+installDialogFocusReturn(ui.dlgEdit);
+installDialogFocusReturn(ui.dlgShare);
+installDialogFocusReturn(ui.dlgHelp);
 
 const nowMs = () => Date.now();
 const todayISO = () => new Date().toISOString().slice(0,10);
@@ -229,12 +238,61 @@ function setNotice(el, msg) {
   el.textContent = msg;
 }
 
-function openDialog(dlg) {
+function announce(msg) {
+  const el = ui.srAnnounce;
+  if (!el) return;
+  const t = (msg || '').toString().trim();
+  if (!t) return;
+  // Force re-announce even if the same message is sent twice.
+  el.textContent = '';
+  // next microtask
+  Promise.resolve().then(() => { el.textContent = t; });
+}
+
+const _dlgReturnFocus = new WeakMap();
+
+function firstFocusable(root) {
+  if (!root) return null;
+  const sel = [
+    '[autofocus]',
+    'button:not([disabled])',
+    'a[href]',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+    'summary',
+  ].join(',');
+  const el = root.querySelector(sel);
+  return el instanceof HTMLElement ? el : null;
+}
+
+function openDialog(dlg, opts = {}) {
+  if (!dlg) return;
+  const trigger = opts.trigger || document.activeElement;
+  if (trigger instanceof HTMLElement) _dlgReturnFocus.set(dlg, trigger);
   try { dlg.showModal(); } catch { /* ignore */ }
+
+  // Move focus inside the dialog.
+  // (Native <dialog> does not reliably focus the first control across browsers.)
+  const toFocus = firstFocusable(dlg);
+  if (toFocus) setTimeout(() => { try { toFocus.focus(); } catch {} }, 0);
 }
 
 function closeDialog(dlg) {
+  if (!dlg) return;
   try { dlg.close(); } catch { /* ignore */ }
+}
+
+function installDialogFocusReturn(dlg) {
+  if (!dlg || dlg.__sfgA11yInstalled) return;
+  dlg.__sfgA11yInstalled = true;
+  dlg.addEventListener('close', () => {
+    const el = _dlgReturnFocus.get(dlg);
+    if (el && document.contains(el)) {
+      try { el.focus(); } catch { /* ignore */ }
+    }
+  });
 }
 
 function updateImportDeckOptions() {
@@ -288,7 +346,7 @@ function renderDeckGrid() {
       if (act === 'edit') {
         state.activeDeckId = d.id;
         saveState();
-        openEdit();
+        openEdit(btn);
         return;
       }
     });
@@ -334,7 +392,7 @@ function renderDeckListDialog() {
       if (act === 'edit') {
         state.activeDeckId = d.id;
         saveState();
-        openEdit();
+        openEdit(btn);
         return;
       }
     });
@@ -432,6 +490,8 @@ function flip() {
 
   const canGrade = session.showingBack && !!session.currentCardId;
   ui.btnAgain.disabled = ui.btnHard.disabled = ui.btnGood.disabled = ui.btnEasy.disabled = !canGrade;
+
+  announce(session.showingBack ? 'Answer shown. Choose a grade: 1 Again, 2 Hard, 3 Good, 4 Easy.' : 'Question shown. Press Space to flip.');
 }
 
 function grade(quality) {
@@ -444,6 +504,10 @@ function grade(quality) {
   gradeCard(card, quality);
   state.today.reviewed += 1;
   saveState();
+
+  const labels = ['Again', 'Hard', 'Good', 'Easy'];
+  announce(`Graded: ${labels[quality] || 'OK'}.`);
+
   renderAll();
 }
 
@@ -476,7 +540,7 @@ function parseCardsText(text) {
   return pairs;
 }
 
-function openEdit() {
+function openEdit(trigger) {
   const deck = getActiveDeck();
   if (!deck) {
     // create one
@@ -490,7 +554,7 @@ function openEdit() {
   ui.deckName.value = active.name;
   ui.cardsText.value = active.cards.map(c => `${(c.front || '').replace(/\n/g,' ')}\t${(c.back || '').replace(/\n/g,' ')}`.trim()).join('\n');
   setNotice(ui.editStatus, '');
-  openDialog(ui.dlgEdit);
+  openDialog(ui.dlgEdit, { trigger });
 }
 
 function saveEdit() {
@@ -627,7 +691,7 @@ function renderQr(text, canvas) {
   }
 }
 
-function openShareDialog() {
+function openShareDialog(trigger) {
   const deck = getActiveDeck();
   if (!deck) return;
 
@@ -637,7 +701,7 @@ function openShareDialog() {
   setNotice(ui.shareStatus, '');
   ui.shareStatus.hidden = true;
 
-  openDialog(ui.dlgShare);
+  openDialog(ui.dlgShare, { trigger });
 
   // Best-effort: copy immediately for convenience.
   navigator.clipboard?.writeText(url).then(() => {
@@ -783,7 +847,7 @@ function plantNewDeck() {
   state.activeDeckId = d.id;
   saveState();
   renderAll();
-  openEdit();
+  openEdit(document.activeElement);
 }
 
 function renderAll() {
@@ -795,15 +859,15 @@ function renderAll() {
 }
 
 // Events
-ui.btnDeck.addEventListener('click', () => { renderDeckListDialog(); openDialog(ui.dlgDeck); });
+ui.btnDeck.addEventListener('click', (e) => { renderDeckListDialog(); openDialog(ui.dlgDeck, { trigger: e.currentTarget }); });
 ui.dlgNewDeck.addEventListener('click', () => plantNewDeck());
 ui.btnNewDeck.addEventListener('click', () => plantNewDeck());
 
-ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice(ui.importStatus,''); updateImportDeckOptions(); openDialog(ui.dlgImport); });
+ui.btnImport.addEventListener('click', (e) => { ui.importText.value=''; setNotice(ui.importStatus,''); updateImportDeckOptions(); openDialog(ui.dlgImport, { trigger: e.currentTarget }); });
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
-ui.btnShare.addEventListener('click', () => openShareDialog());
-ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
+ui.btnShare.addEventListener('click', (e) => openShareDialog(e.currentTarget));
+ui.btnHelp.addEventListener('click', (e) => openDialog(ui.dlgHelp, { trigger: e.currentTarget }));
 
 ui.btnCopyShare.addEventListener('click', () => {
   const url = ui.shareUrl.value || '';
@@ -858,8 +922,8 @@ ui.btnHard.addEventListener('click', () => grade(1));
 ui.btnGood.addEventListener('click', () => grade(2));
 ui.btnEasy.addEventListener('click', () => grade(3));
 
-ui.btnAdd.addEventListener('click', () => openEdit());
-ui.btnEdit.addEventListener('click', () => openEdit());
+ui.btnAdd.addEventListener('click', (e) => openEdit(e.currentTarget));
+ui.btnEdit.addEventListener('click', (e) => openEdit(e.currentTarget));
 ui.btnSaveDeck.addEventListener('click', () => saveEdit());
 ui.btnDeleteDeck.addEventListener('click', () => deleteActiveDeck());
 ui.btnResetDay.addEventListener('click', () => {
@@ -869,7 +933,7 @@ ui.btnResetDay.addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgHelp.open) return;
+  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgShare.open || ui.dlgHelp.open) return;
 
   if (e.key === ' ') { e.preventDefault(); flip(); }
   if (e.key === '1') grade(0);
