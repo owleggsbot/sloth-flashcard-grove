@@ -4,7 +4,8 @@ const STORAGE_KEY = 'sfg:v1';
 
 /** @typedef {{id:string, front:string, back:string, createdAt:number, srs:{ease:number, intervalDays:number, reps:number, due:number, lapses:number}}} Card */
 /** @typedef {{id:string, name:string, createdAt:number, cards:Card[]}} Deck */
-/** @typedef {{version:1, activeDeckId:string|null, decks:Deck[], today:{date:string, reviewed:number}}} State */
+/** @typedef {{mode:'single'|'garden', excludedDeckIds:string[]}} StudySettings */
+/** @typedef {{version:1, activeDeckId:string|null, decks:Deck[], today:{date:string, reviewed:number}, study:StudySettings}} State */
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,6 +17,7 @@ const ui = {
   btnHelp: $('btnHelp'),
 
   deckLabel: $('deckLabel'),
+  cardDeckLabel: $('cardDeckLabel'),
   dueLabel: $('dueLabel'),
   streakLabel: $('streakLabel'),
 
@@ -38,6 +40,10 @@ const ui = {
 
   dlgDeck: $('dlgDeck'),
   deckList: $('deckList'),
+  studyModeSingle: $('studyModeSingle'),
+  studyModeGarden: $('studyModeGarden'),
+  gardenDecks: $('gardenDecks'),
+  gardenDeckChecklist: $('gardenDeckChecklist'),
   dlgNewDeck: $('dlgNewDeck'),
 
   dlgImport: $('dlgImport'),
@@ -79,6 +85,15 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 const uid = () => Math.random().toString(16).slice(2) + '-' + Math.random().toString(16).slice(2);
 
+function escapeHtml(s) {
+  return (s ?? '').toString()
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
 function defaultState() {
   /** @type {State} */
   const s = {
@@ -86,6 +101,7 @@ function defaultState() {
     activeDeckId: null,
     decks: [],
     today: { date: todayISO(), reviewed: 0 },
+    study: { mode: 'single', excludedDeckIds: [] },
   };
   return s;
 }
@@ -97,6 +113,8 @@ function loadState() {
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.version !== 1) return defaultState();
     if (!parsed.today || typeof parsed.today.date !== 'string') parsed.today = { date: todayISO(), reviewed: 0 };
+    if (!parsed.study || (parsed.study.mode !== 'single' && parsed.study.mode !== 'garden')) parsed.study = { mode: 'single', excludedDeckIds: [] };
+    if (!Array.isArray(parsed.study.excludedDeckIds)) parsed.study.excludedDeckIds = [];
     return parsed;
   } catch {
     return defaultState();
@@ -161,6 +179,35 @@ function getActiveDeck() {
   return state.decks.find(d => d.id === state.activeDeckId) || null;
 }
 
+function getStudyMode() {
+  return state.study?.mode === 'garden' ? 'garden' : 'single';
+}
+
+function getGardenIncludedDecks() {
+  const excluded = new Set(state.study?.excludedDeckIds || []);
+  return state.decks.filter(d => !excluded.has(d.id));
+}
+
+function countDueAcrossDecks(decks) {
+  const t = nowMs();
+  let n = 0;
+  for (const d of decks) n += d.cards.filter(c => c.srs.due <= t).length;
+  return n;
+}
+
+function pickNextDueCardAcrossDecks(decks) {
+  const t = nowMs();
+  /** @type {{deck:Deck, card:Card}[]} */
+  const due = [];
+  for (const d of decks) {
+    for (const c of d.cards) {
+      if (c.srs.due <= t) due.push({ deck: d, card: c });
+    }
+  }
+  due.sort((a,b) => a.card.srs.due - b.card.srs.due);
+  return due[0] || null;
+}
+
 function countDue(deck) {
   const t = nowMs();
   return deck.cards.filter(c => c.srs.due <= t).length;
@@ -221,6 +268,7 @@ ensureSampleIfEmpty();
 let session = {
   showingBack: false,
   currentCardId: null,
+  currentDeckId: null,
 };
 
 function setNotice(el, msg) {
@@ -298,6 +346,37 @@ function renderDeckGrid() {
 }
 
 function renderDeckListDialog() {
+  // Study mode controls
+  const mode = getStudyMode();
+  if (ui.studyModeSingle) ui.studyModeSingle.checked = mode === 'single';
+  if (ui.studyModeGarden) ui.studyModeGarden.checked = mode === 'garden';
+  if (ui.gardenDecks) ui.gardenDecks.hidden = mode !== 'garden';
+
+  // Garden walk include/exclude checklist
+  if (ui.gardenDeckChecklist) {
+    ui.gardenDeckChecklist.innerHTML = '';
+    const excluded = new Set(state.study?.excludedDeckIds || []);
+
+    for (const d of state.decks.slice().sort((a,b) => a.name.localeCompare(b.name))) {
+      const id = `garden-inc-${d.id}`;
+      const label = document.createElement('label');
+      label.setAttribute('for', id);
+      label.innerHTML = `
+        <input id="${id}" type="checkbox" data-deck-id="${d.id}" ${excluded.has(d.id) ? '' : 'checked'} />
+        <span>${escapeHtml(d.name)}</span>
+      `;
+      ui.gardenDeckChecklist.appendChild(label);
+    }
+
+    if (!state.decks.length) {
+      const empty = document.createElement('div');
+      empty.className = 'small';
+      empty.textContent = 'No decks yet. Plant one first.';
+      ui.gardenDeckChecklist.appendChild(empty);
+    }
+  }
+
+  // Deck list
   ui.deckList.innerHTML = '';
   const active = getActiveDeck();
 
@@ -344,11 +423,60 @@ function renderDeckListDialog() {
 
 function renderCard() {
   normalizeTodayCounter();
-  const deck = getActiveDeck();
 
   ui.btnAgain.disabled = ui.btnHard.disabled = ui.btnGood.disabled = ui.btnEasy.disabled = true;
   ui.cardBack.hidden = true;
   session.showingBack = false;
+
+  // default: hide per-card deck pill
+  if (ui.cardDeckLabel) {
+    ui.cardDeckLabel.hidden = true;
+    ui.cardDeckLabel.textContent = '';
+  }
+
+  const mode = getStudyMode();
+
+  if (mode === 'garden') {
+    const includedDecks = getGardenIncludedDecks();
+
+    ui.deckLabel.textContent = 'Garden Walk';
+    ui.dueLabel.textContent = `Due now: ${countDueAcrossDecks(includedDecks)}`;
+    ui.streakLabel.textContent = `Today: ${state.today.reviewed}`;
+
+    if (!includedDecks.length) {
+      ui.cardFront.textContent = 'No decks included in Garden Walk.';
+      ui.cardBack.textContent = 'Open Decks → Garden Walk to include at least one deck.';
+      ui.cardBack.hidden = false;
+      session.showingBack = true;
+      session.currentCardId = null;
+      session.currentDeckId = null;
+      return;
+    }
+
+    const pick = pickNextDueCardAcrossDecks(includedDecks);
+    if (!pick) {
+      ui.cardFront.textContent = 'No cards due. Take a slow stroll.';
+      ui.cardBack.textContent = 'Tip: you can exclude a deck in Decks → Garden Walk.';
+      ui.cardBack.hidden = false;
+      session.showingBack = true;
+      session.currentCardId = null;
+      session.currentDeckId = null;
+      return;
+    }
+
+    session.currentCardId = pick.card.id;
+    session.currentDeckId = pick.deck.id;
+    if (ui.cardDeckLabel) {
+      ui.cardDeckLabel.textContent = `Deck: ${pick.deck.name}`;
+      ui.cardDeckLabel.hidden = false;
+    }
+    ui.cardFront.textContent = pick.card.front || '(blank front)';
+    ui.cardBack.textContent = pick.card.back || '(blank back)';
+    return;
+  }
+
+  // single-deck mode
+  const deck = getActiveDeck();
 
   if (!deck) {
     ui.deckLabel.textContent = 'Deck: —';
@@ -357,6 +485,7 @@ function renderCard() {
     ui.cardFront.textContent = 'Plant a deck to begin.';
     ui.cardBack.textContent = '';
     session.currentCardId = null;
+    session.currentDeckId = null;
     return;
   }
 
@@ -369,6 +498,7 @@ function renderCard() {
     ui.cardFront.textContent = 'This deck is empty. Add a few cards and come back.';
     ui.cardBack.textContent = '';
     session.currentCardId = null;
+    session.currentDeckId = null;
     return;
   }
 
@@ -379,10 +509,12 @@ function renderCard() {
     ui.cardBack.hidden = false;
     session.showingBack = true;
     session.currentCardId = null;
+    session.currentDeckId = null;
     return;
   }
 
   session.currentCardId = card.id;
+  session.currentDeckId = deck.id;
   ui.cardFront.textContent = card.front || '(blank front)';
   ui.cardBack.textContent = card.back || '(blank back)';
 }
@@ -412,8 +544,17 @@ function speakVisibleSide() {
   speak(text);
 }
 
+function getSessionDeck() {
+  const mode = getStudyMode();
+  if (mode === 'garden') {
+    if (!session.currentDeckId) return null;
+    return state.decks.find(d => d.id === session.currentDeckId) || null;
+  }
+  return getActiveDeck();
+}
+
 function flip() {
-  const deck = getActiveDeck();
+  const deck = getSessionDeck();
   if (!deck) return;
   if (CAN_SPEAK) stopSpeak();
 
@@ -435,7 +576,7 @@ function flip() {
 }
 
 function grade(quality) {
-  const deck = getActiveDeck();
+  const deck = getSessionDeck();
   if (!deck) return;
   const card = deck.cards.find(c => c.id === session.currentCardId) || null;
   if (!card) return;
@@ -528,6 +669,8 @@ function deleteActiveDeck() {
   if (!ok) return;
   state.decks = state.decks.filter(d => d.id !== deck.id);
   state.activeDeckId = state.decks[0]?.id || null;
+  // Keep Garden Walk selections tidy.
+  state.study.excludedDeckIds = (state.study.excludedDeckIds || []).filter(id => id !== deck.id);
   saveState();
   closeDialog(ui.dlgEdit);
   renderAll();
@@ -796,6 +939,33 @@ function renderAll() {
 
 // Events
 ui.btnDeck.addEventListener('click', () => { renderDeckListDialog(); openDialog(ui.dlgDeck); });
+
+// Study mode toggles (Decks dialog)
+ui.studyModeSingle?.addEventListener('change', () => {
+  if (!ui.studyModeSingle.checked) return;
+  state.study.mode = 'single';
+  saveState();
+  renderAll();
+});
+ui.studyModeGarden?.addEventListener('change', () => {
+  if (!ui.studyModeGarden.checked) return;
+  state.study.mode = 'garden';
+  saveState();
+  renderAll();
+});
+ui.gardenDeckChecklist?.addEventListener('change', (e) => {
+  const input = e.target?.closest?.('input[type="checkbox"][data-deck-id]');
+  if (!input) return;
+  const id = input.getAttribute('data-deck-id');
+  if (!id) return;
+
+  const excluded = new Set(state.study.excludedDeckIds || []);
+  if (input.checked) excluded.delete(id);
+  else excluded.add(id);
+  state.study.excludedDeckIds = Array.from(excluded);
+  saveState();
+  renderAll();
+});
 ui.dlgNewDeck.addEventListener('click', () => plantNewDeck());
 ui.btnNewDeck.addEventListener('click', () => plantNewDeck());
 

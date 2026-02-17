@@ -35,6 +35,7 @@
     <section class="card" aria-label="Study card">
       <div class="card__meta">
         <div id="deckLabel" class="pill">Deck: —</div>
+        <div id="cardDeckLabel" class="pill" hidden></div>
         <div id="dueLabel" class="pill pill--alt">Due now: —</div>
         <div id="streakLabel" class="pill pill--soft">Today: —</div>
       </div>
@@ -90,6 +91,20 @@
         <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
       </div>
       <div class="dlg__body">
+        <div class="studyMode" aria-label="Study mode">
+          <div class="row">
+            <div class="lbl">Study mode</div>
+            <div class="studyMode__opts">
+              <label class="opt"><input id="studyModeSingle" type="radio" name="studyMode" value="single" checked /> Single deck</label>
+              <label class="opt"><input id="studyModeGarden" type="radio" name="studyMode" value="garden" /> Garden Walk</label>
+            </div>
+          </div>
+          <div id="gardenDecks" class="gardenDecks" hidden>
+            <div class="small">Include decks in Garden Walk:</div>
+            <div id="gardenDeckChecklist" class="checklist"></div>
+          </div>
+        </div>
+
         <div id="deckList" class="deckList"></div>
       </div>
       <div class="dlg__foot">
