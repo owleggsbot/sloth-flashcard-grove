@@ -42,6 +42,12 @@ const ui = {
 
   dlgImport: $('dlgImport'),
   importText: $('importText'),
+  importDelimiter: $('importDelimiter'),
+  importFrontCol: $('importFrontCol'),
+  importBackCol: $('importBackCol'),
+  importNormalizeWs: $('importNormalizeWs'),
+  importWarnings: $('importWarnings'),
+  importPreview: $('importPreview'),
   importDeck: $('importDeck'),
   importAppend: $('importAppend'),
   importStatus: $('importStatus'),
@@ -476,6 +482,189 @@ function parseCardsText(text) {
   return pairs;
 }
 
+function normalizeWhitespace(s) {
+  return (s ?? '').toString()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function columnName(i) {
+  // 0 -> A, 25 -> Z, 26 -> AA
+  let n = i;
+  let out = '';
+  while (n >= 0) {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  }
+  return out;
+}
+
+function parseDelimited(text, delimiter) {
+  // Simple delimited parser. Supports "" quotes for comma/pipe; tabs are treated as raw.
+  const lines = (text || '').split(/\r?\n/);
+  const rows = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    // If delimiter is a tab, keep it straightforward.
+    if (delimiter === '\t') {
+      rows.push(line.split('\t'));
+      continue;
+    }
+
+    const row = [];
+    let cur = '';
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; continue; }
+        inQ = !inQ;
+        continue;
+      }
+      if (ch === delimiter && !inQ) {
+        row.push(cur);
+        cur = '';
+        continue;
+      }
+      cur += ch;
+    }
+    row.push(cur);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function detectDelimiter(text) {
+  const candidates = ['\t', ',', '|'];
+  const lines = (text || '').split(/\r?\n/).filter(l => l.trim()).slice(0, 12);
+  if (!lines.length) return '\t';
+
+  let best = { d: '\t', score: 0, cols: 0 };
+  for (const d of candidates) {
+    let colsTotal = 0;
+    let counted = 0;
+    for (const line of lines) {
+      const cols = parseDelimited(line, d)[0]?.length || 0;
+      if (cols > 0) { colsTotal += cols; counted++; }
+    }
+    if (!counted) continue;
+    const avgCols = colsTotal / counted;
+    const score = avgCols; // prefer higher column count
+    if (score > best.score) best = { d, score, cols: avgCols };
+  }
+
+  // If everything looks like 1 column, default to tab because of Anki TSV.
+  if (best.score <= 1.05) return '\t';
+  return best.d;
+}
+
+function renderPreviewTable(tableEl, rows, colCount) {
+  if (!tableEl) return;
+  const head = `<thead><tr>${Array.from({ length: colCount }).map((_, i) => `<th>${columnName(i)}</th>`).join('')}</tr></thead>`;
+  const bodyRows = rows.map(r => `<tr>${Array.from({ length: colCount }).map((_, i) => `<td>${escapeHtml((r[i] ?? '').toString())}</td>`).join('')}</tr>`).join('');
+  tableEl.innerHTML = head + `<tbody>${bodyRows}</tbody>`;
+}
+
+function escapeHtml(s) {
+  return (s ?? '').toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setImportMappingOptions(colCount) {
+  const front = ui.importFrontCol;
+  const back = ui.importBackCol;
+  if (!front || !back) return;
+
+  const opts = Array.from({ length: colCount }).map((_, i) => ({ value: String(i), label: `${columnName(i)} (col ${i + 1})` }));
+
+  front.innerHTML = opts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+  back.innerHTML = `<option value="-1">(empty)</option>` + opts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+
+  // Sensible defaults: A=front, B=back (if exists)
+  front.value = '0';
+  back.value = colCount >= 2 ? '1' : '-1';
+}
+
+function updateImportPreview() {
+  setNotice(ui.importStatus, '');
+  setNotice(ui.importWarnings, '');
+
+  const raw = (ui.importText.value || '').trim();
+  if (!raw) {
+    if (ui.importPreview) ui.importPreview.innerHTML = '';
+    if (ui.importFrontCol) ui.importFrontCol.innerHTML = '';
+    if (ui.importBackCol) ui.importBackCol.innerHTML = '';
+    return;
+  }
+
+  // JSON import path (keep existing behavior, but show a small preview if possible).
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const data = JSON.parse(raw);
+      let pairs = [];
+      if (data?.kind === 'sfg-deck' && data?.deck?.cards) {
+        pairs = data.deck.cards.map(c => [c.front || '', c.back || '']);
+      } else if (Array.isArray(data)) {
+        pairs = data.map(r => [r.front || '', r.back || '']);
+      }
+      if (pairs.length) {
+        setImportMappingOptions(2);
+        if (ui.importDelimiter) ui.importDelimiter.value = 'auto';
+        renderPreviewTable(ui.importPreview, pairs.slice(0, 20), 2);
+      }
+      return;
+    } catch {
+      // Fall through to delimiter parsing.
+    }
+  }
+
+  let delimiter = ui.importDelimiter?.value || 'auto';
+  if (delimiter === 'auto') delimiter = detectDelimiter(raw);
+
+  const rows = parseDelimited(raw, delimiter);
+  const colCount = Math.max(1, ...rows.map(r => r.length));
+
+  setImportMappingOptions(colCount);
+  renderPreviewTable(ui.importPreview, rows.slice(0, 20), colCount);
+
+  // Warnings
+  const normalize = !!ui.importNormalizeWs?.checked;
+  const frontIdx = parseInt(ui.importFrontCol?.value || '0', 10);
+  const backIdx = parseInt(ui.importBackCol?.value || (colCount >= 2 ? '1' : '-1'), 10);
+
+  let emptyRows = 0;
+  let longFields = 0;
+  const seen = new Set();
+  let dupes = 0;
+  for (const r of rows) {
+    const any = r.some(v => (v ?? '').toString().trim().length);
+    if (!any) { emptyRows++; continue; }
+
+    const f0 = r[frontIdx] ?? '';
+    const b0 = backIdx >= 0 ? (r[backIdx] ?? '') : '';
+    const f = normalize ? normalizeWhitespace(f0) : (f0 ?? '').toString().trim();
+    const b = normalize ? normalizeWhitespace(b0) : (b0 ?? '').toString().trim();
+
+    if (f.length > 350 || b.length > 350) longFields++;
+
+    const key = `${f}__${b}`;
+    if (seen.has(key)) dupes++;
+    else seen.add(key);
+  }
+
+  const warns = [];
+  if (emptyRows) warns.push(`${emptyRows} empty row(s) will be ignored.`);
+  if (dupes) warns.push(`${dupes} duplicate card(s) detected (same front+back).`);
+  if (longFields) warns.push(`${longFields} very long field(s) (>350 chars). Consider trimming.`);
+
+  if (warns.length) setNotice(ui.importWarnings, warns.join(' '));
+}
+
 function openEdit() {
   const deck = getActiveDeck();
   if (!deck) {
@@ -696,82 +885,70 @@ function maybeHandleSharedDeck() {
 }
 
 function doImport() {
-  const text = (ui.importText.value || '').trim();
-  if (!text) { setNotice(ui.importStatus, 'Paste some CSV or JSON first.'); return; }
+  const raw = (ui.importText.value || '').trim();
+  if (!raw) { setNotice(ui.importStatus, 'Paste some CSV/TSV or JSON first.'); return; }
 
   const targetId = ui.importDeck.value;
   const deck = state.decks.find(d => d.id === targetId) || getActiveDeck();
   if (!deck) { setNotice(ui.importStatus, 'No target deck found.'); return; }
 
-  let cards = [];
+  const normalize = !!ui.importNormalizeWs?.checked;
 
-  // Try JSON format
-  if (text.startsWith('{') || text.startsWith('[')) {
+  /** @type {Array<[string,string]>} */
+  let pairs = [];
+
+  // JSON formats
+  if (raw.startsWith('{') || raw.startsWith('[')) {
     try {
-      const data = JSON.parse(text);
+      const data = JSON.parse(raw);
       if (data?.kind === 'sfg-deck' && data?.deck?.cards) {
-        cards = data.deck.cards.map(c => [c.front || '', c.back || '']);
+        pairs = data.deck.cards.map(c => [c.front || '', c.back || '']);
       } else if (Array.isArray(data)) {
-        cards = data.map(r => [r.front || '', r.back || '']);
-      } else {
-        setNotice(ui.importStatus, 'JSON parsed but format not recognized.');
-        return;
+        pairs = data.map(r => [r.front || '', r.back || '']);
       }
     } catch {
-      // fall through to CSV
+      // not JSON
     }
   }
 
-  if (!cards.length) {
-    // CSV: front,back (commas inside quotes allowed-ish)
-    cards = parseCsv(text);
+  // Delimited/text formats
+  if (!pairs.length) {
+    let delimiter = ui.importDelimiter?.value || 'auto';
+    if (delimiter === 'auto') delimiter = detectDelimiter(raw);
+
+    const rows = parseDelimited(raw, delimiter);
+    const colCount = Math.max(1, ...rows.map(r => r.length));
+
+    const frontIdx = clamp(parseInt(ui.importFrontCol?.value || '0', 10), 0, colCount - 1);
+    const backIdxRaw = parseInt(ui.importBackCol?.value || (colCount >= 2 ? '1' : '-1'), 10);
+    const backIdx = backIdxRaw >= 0 ? clamp(backIdxRaw, 0, colCount - 1) : -1;
+
+    pairs = rows.map((r) => {
+      const f0 = r[frontIdx] ?? '';
+      const b0 = backIdx >= 0 ? (r[backIdx] ?? '') : '';
+      const f = normalize ? normalizeWhitespace(f0) : (f0 ?? '').toString().trim();
+      const b = normalize ? normalizeWhitespace(b0) : (b0 ?? '').toString().trim();
+      return [f, b];
+    });
   }
 
-  cards = cards
-    .map(([f,b]) => [String(f||'').trim(), String(b||'').trim()])
-    .filter(([f,b]) => f.length || b.length)
+  pairs = pairs
+    .map(([f, b]) => [String(f || '').trim(), String(b || '').trim()])
+    .filter(([f, b]) => f.length || b.length)
     .slice(0, 800);
 
-  if (!cards.length) { setNotice(ui.importStatus, 'No cards found.'); return; }
+  if (!pairs.length) { setNotice(ui.importStatus, 'No cards found.'); return; }
 
   if (ui.importAppend.checked) {
-    for (const [front, back] of cards) deck.cards.push(newCard(front, back));
+    for (const [front, back] of pairs) deck.cards.push(newCard(front, back));
   } else {
-    deck.cards = cards.map(([front, back]) => newCard(front, back));
+    deck.cards = pairs.map(([front, back]) => newCard(front, back));
   }
 
   state.activeDeckId = deck.id;
   saveState();
-  setNotice(ui.importStatus, `Imported ${cards.length} cards into “${deck.name}”.`);
+  setNotice(ui.importStatus, `Imported ${pairs.length} cards into “${deck.name}”.`);
   renderAll();
-}
-
-function parseCsv(text) {
-  // very small CSV parser for two columns
-  const lines = text.split(/\r?\n/);
-  const out = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const row = [];
-    let cur = '';
-    let inQ = false;
-    for (let i=0;i<trimmed.length;i++) {
-      const ch = trimmed[i];
-      if (ch === '"') {
-        if (inQ && trimmed[i+1] === '"') { cur += '"'; i++; continue; }
-        inQ = !inQ;
-        continue;
-      }
-      if (ch === ',' && !inQ) { row.push(cur); cur=''; continue; }
-      cur += ch;
-    }
-    row.push(cur);
-    const front = row[0] ?? '';
-    const back = row.slice(1).join(',') ?? '';
-    out.push([front, back]);
-  }
-  return out;
 }
 
 function plantNewDeck() {
@@ -799,7 +976,24 @@ ui.btnDeck.addEventListener('click', () => { renderDeckListDialog(); openDialog(
 ui.dlgNewDeck.addEventListener('click', () => plantNewDeck());
 ui.btnNewDeck.addEventListener('click', () => plantNewDeck());
 
-ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice(ui.importStatus,''); updateImportDeckOptions(); openDialog(ui.dlgImport); });
+ui.btnImport.addEventListener('click', () => {
+  ui.importText.value = '';
+  if (ui.importDelimiter) ui.importDelimiter.value = 'auto';
+  if (ui.importNormalizeWs) ui.importNormalizeWs.checked = true;
+  setNotice(ui.importStatus, '');
+  setNotice(ui.importWarnings, '');
+  if (ui.importPreview) ui.importPreview.innerHTML = '';
+  updateImportDeckOptions();
+  openDialog(ui.dlgImport);
+  updateImportPreview();
+});
+
+ui.importText?.addEventListener('input', () => updateImportPreview());
+ui.importDelimiter?.addEventListener('change', () => updateImportPreview());
+ui.importNormalizeWs?.addEventListener('change', () => updateImportPreview());
+ui.importFrontCol?.addEventListener('change', () => updateImportPreview());
+ui.importBackCol?.addEventListener('change', () => updateImportPreview());
+
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
 ui.btnShare.addEventListener('click', () => openShareDialog());

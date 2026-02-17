@@ -106,8 +106,49 @@
         <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
       </div>
       <div class="dlg__body">
-        <p class="p">Paste CSV (<span class="mono">front,back</span>) or JSON exported from this app.</p>
-        <textarea id="importText" class="ta" rows="10" spellcheck="false" placeholder="front,back\nWhat is a sloth? , A slow arboreal mammal\n..."></textarea>
+        <p class="p">Paste CSV/TSV/text → preview → map columns → import.</p>
+
+        <textarea id="importText" class="ta" rows="9" spellcheck="false" placeholder="Front\tBack\nWhat is a sloth?\tA slow arboreal mammal\n..."></textarea>
+
+        <details class="details" open>
+          <summary>Parsing & mapping</summary>
+
+          <div class="row row--grid">
+            <div>
+              <label class="lbl" for="importDelimiter">Delimiter</label>
+              <select id="importDelimiter" class="sel">
+                <option value="auto" selected>Auto-detect</option>
+                <option value=",">Comma (,)</option>
+                <option value="\t">Tab (TSV)</option>
+                <option value="|">Pipe (|)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="lbl" for="importFrontCol">Front column</label>
+              <select id="importFrontCol" class="sel"></select>
+            </div>
+
+            <div>
+              <label class="lbl" for="importBackCol">Back column</label>
+              <select id="importBackCol" class="sel"></select>
+            </div>
+          </div>
+
+          <div class="row">
+            <label><input id="importNormalizeWs" type="checkbox" checked /> Normalize whitespace</label>
+          </div>
+
+          <div id="importWarnings" class="notice notice--warn" hidden></div>
+
+          <div class="preview">
+            <div class="small">Preview (first ~20 rows)</div>
+            <div class="preview__wrap">
+              <table id="importPreview" class="tbl" aria-label="Import preview"></table>
+            </div>
+          </div>
+        </details>
+
         <div class="row">
           <label class="lbl">Target deck</label>
           <select id="importDeck" class="sel"></select>
