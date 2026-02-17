@@ -4,7 +4,7 @@ const STORAGE_KEY = 'sfg:v1';
 
 /** @typedef {{id:string, front:string, back:string, createdAt:number, srs:{ease:number, intervalDays:number, reps:number, due:number, lapses:number}}} Card */
 /** @typedef {{id:string, name:string, createdAt:number, cards:Card[]}} Deck */
-/** @typedef {{version:1, activeDeckId:string|null, decks:Deck[], today:{date:string, reviewed:number}}} State */
+/** @typedef {{version:1, activeDeckId:string|null, decks:Deck[], today:{date:string, reviewed:number}, stats?:{daily:Record<string,number>, bestStreak:number}}} State */
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,6 +35,7 @@ const ui = {
   btnAdd: $('btnAdd'),
   btnEdit: $('btnEdit'),
   btnResetDay: $('btnResetDay'),
+  btnSummary: $('btnSummary'),
 
   dlgDeck: $('dlgDeck'),
   deckList: $('deckList'),
@@ -62,6 +63,13 @@ const ui = {
   btnShareNative: $('btnShareNative'),
   shareStatus: $('shareStatus'),
 
+  dlgSummary: $('dlgSummary'),
+  summaryCanvas: $('summaryCanvas'),
+  summaryText: $('summaryText'),
+  btnCopySummary: $('btnCopySummary'),
+  btnDownloadSummary: $('btnDownloadSummary'),
+  summaryStatus: $('summaryStatus'),
+
   dlgHelp: $('dlgHelp'),
 };
 
@@ -86,6 +94,7 @@ function defaultState() {
     activeDeckId: null,
     decks: [],
     today: { date: todayISO(), reviewed: 0 },
+    stats: { daily: {}, bestStreak: 0 },
   };
   return s;
 }
@@ -97,6 +106,19 @@ function loadState() {
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.version !== 1) return defaultState();
     if (!parsed.today || typeof parsed.today.date !== 'string') parsed.today = { date: todayISO(), reviewed: 0 };
+    if (!parsed.stats || typeof parsed.stats !== 'object') parsed.stats = { daily: {}, bestStreak: 0 };
+    if (!parsed.stats.daily || typeof parsed.stats.daily !== 'object') parsed.stats.daily = {};
+    if (typeof parsed.stats.bestStreak !== 'number') parsed.stats.bestStreak = 0;
+    // Keep today counter in sync with daily history.
+    const t = todayISO();
+    if (parsed.today.date !== t) {
+      // Normalize to today; leave past daily entries intact.
+      parsed.today = { date: t, reviewed: parsed.stats.daily[t] || 0 };
+    } else {
+      const v = parsed.stats.daily[t];
+      if (typeof v === 'number') parsed.today.reviewed = v;
+      else parsed.stats.daily[t] = parsed.today.reviewed || 0;
+    }
     return parsed;
   } catch {
     return defaultState();
@@ -107,11 +129,20 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function ensureStats() {
+  if (!state.stats) state.stats = { daily: {}, bestStreak: 0 };
+  if (!state.stats.daily) state.stats.daily = {};
+  if (typeof state.stats.bestStreak !== 'number') state.stats.bestStreak = 0;
+}
+
 function normalizeTodayCounter() {
+  ensureStats();
   const t = todayISO();
   if (state.today.date !== t) {
-    state.today = { date: t, reviewed: 0 };
+    state.today = { date: t, reviewed: state.stats.daily[t] || 0 };
   }
+  if (typeof state.stats.daily[t] !== 'number') state.stats.daily[t] = state.today.reviewed || 0;
+  state.today.reviewed = state.stats.daily[t] || 0;
 }
 
 function ensureSampleIfEmpty() {
@@ -179,6 +210,70 @@ function formatDue(ts) {
   const sameDay = d.toDateString() === now.toDateString();
   if (sameDay) return 'today';
   return d.toISOString().slice(0,10);
+}
+
+function isoAddDays(iso, days) {
+  const d = new Date(iso + 'T00:00:00.000Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function getDailyCount(iso) {
+  ensureStats();
+  const v = state.stats.daily[iso];
+  return typeof v === 'number' ? v : 0;
+}
+
+function computeCurrentStreak() {
+  normalizeTodayCounter();
+  let s = 0;
+  let day = todayISO();
+  for (;;) {
+    if (getDailyCount(day) <= 0) break;
+    s += 1;
+    day = isoAddDays(day, -1);
+    // Hard cap to avoid infinite loops if someone has a huge history.
+    if (s > 5000) break;
+  }
+  return s;
+}
+
+function computeBestStreak() {
+  ensureStats();
+  const dates = Object.keys(state.stats.daily).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  if (!dates.length) return 0;
+  dates.sort();
+
+  let best = 0;
+  let cur = 0;
+  let prev = '';
+
+  for (const d of dates) {
+    const has = (state.stats.daily[d] || 0) > 0;
+    if (!has) { cur = 0; prev = d; continue; }
+
+    if (!prev) {
+      cur = 1;
+    } else {
+      const expected = isoAddDays(prev, 1);
+      cur = (expected === d) ? (cur + 1) : 1;
+    }
+
+    if (cur > best) best = cur;
+    prev = d;
+  }
+
+  return best;
+}
+
+function computeLastNDays(n) {
+  normalizeTodayCounter();
+  const out = [];
+  for (let i = n - 1; i >= 0; i -= 1) {
+    const d = isoAddDays(todayISO(), -i);
+    out.push({ date: d, count: getDailyCount(d) });
+  }
+  return out;
 }
 
 // Simplified SM-2-ish scheduling.
@@ -442,7 +537,11 @@ function grade(quality) {
   if (CAN_SPEAK) stopSpeak();
 
   gradeCard(card, quality);
-  state.today.reviewed += 1;
+  normalizeTodayCounter();
+  const t = todayISO();
+  state.stats.daily[t] = (state.stats.daily[t] || 0) + 1;
+  state.today.reviewed = state.stats.daily[t];
+  state.stats.bestStreak = Math.max(state.stats.bestStreak || 0, computeBestStreak());
   saveState();
   renderAll();
 }
@@ -794,6 +893,212 @@ function renderAll() {
   updateImportDeckOptions();
 }
 
+function buildSessionSummaryText(deck) {
+  normalizeTodayCounter();
+  const reviewedToday = state.today.reviewed || 0;
+  const totalCards = deck ? deck.cards.length : 0;
+  const dueNow = deck ? countDue(deck) : 0;
+  const currentStreak = computeCurrentStreak();
+  const bestStreak = Math.max(state.stats?.bestStreak || 0, computeBestStreak());
+  const last7 = computeLastNDays(7);
+  const bars = last7.map(d => d.count);
+  const max = Math.max(1, ...bars);
+  const mini = bars.map(n => {
+    const h = Math.round((n / max) * 8);
+    return '▁▂▃▄▅▆▇█'[clamp(h, 0, 7)];
+  }).join('');
+
+  const deckName = deck ? deck.name : '—';
+  return [
+    `Sloth Flashcard Grove — session summary`,
+    `Deck: ${deckName}`,
+    `Reviewed today: ${reviewedToday}`,
+    `Due now: ${dueNow} • Total cards: ${totalCards}`,
+    `Streak: ${currentStreak} day(s) • Best: ${bestStreak}`,
+    `Last 7 days: ${mini}`,
+  ].join('\n');
+}
+
+function drawSummaryPostcard(ctx, w, h, deck) {
+  normalizeTodayCounter();
+  const reviewedToday = state.today.reviewed || 0;
+  const totalCards = deck ? deck.cards.length : 0;
+  const dueNow = deck ? countDue(deck) : 0;
+  const currentStreak = computeCurrentStreak();
+  const bestStreak = Math.max(state.stats?.bestStreak || 0, computeBestStreak());
+  const last7 = computeLastNDays(7);
+
+  // Background
+  const g = ctx.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, '#21402e');
+  g.addColorStop(1, '#0f2219');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  // Soft vignette
+  const vg = ctx.createRadialGradient(w*0.35, h*0.25, 10, w*0.35, h*0.25, Math.max(w,h));
+  vg.addColorStop(0, 'rgba(255,255,255,0.10)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+
+  const pad = Math.round(w * 0.06);
+
+  // Title
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.font = `600 ${Math.round(h*0.06)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.textBaseline = 'top';
+  ctx.fillText('Session summary', pad, pad);
+
+  // Deck line
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = `500 ${Math.round(h*0.045)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText(deck ? `Deck: ${deck.name}` : 'Deck: —', pad, pad + Math.round(h*0.085));
+
+  // Stats block
+  const statY = pad + Math.round(h*0.16);
+  ctx.font = `500 ${Math.round(h*0.05)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  const lines = [
+    `Reviewed today: ${reviewedToday}`,
+    `Due now: ${dueNow}   Total cards: ${totalCards}`,
+    `Streak: ${currentStreak} day(s)   Best: ${bestStreak}`,
+  ];
+  lines.forEach((t, i) => ctx.fillText(t, pad, statY + i * Math.round(h*0.07)));
+
+  // Sloth + leaves motif (simple vector)
+  const cx = w - pad - Math.round(w*0.22);
+  const cy = pad + Math.round(h*0.26);
+  const r = Math.round(h*0.16);
+
+  // Leafy halo
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let i=0;i<8;i++) {
+    const a = (i/8) * Math.PI * 2;
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(129, 214, 138, ${0.22 + (i%2)*0.08})`;
+    ctx.ellipse(r*0.9, 0, r*0.35, r*0.16, 0.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.rotate(-a);
+  }
+  ctx.restore();
+
+  // Face
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(245, 236, 220, 0.92)';
+  ctx.ellipse(cx, cy, r*1.05, r*0.95, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Mask
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(100, 78, 62, 0.55)';
+  ctx.ellipse(cx - r*0.35, cy + r*0.05, r*0.55, r*0.45, -0.15, 0, Math.PI*2);
+  ctx.ellipse(cx + r*0.35, cy + r*0.05, r*0.55, r*0.45, 0.15, 0, Math.PI*2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = 'rgba(20,20,20,0.85)';
+  ctx.beginPath();
+  ctx.arc(cx - r*0.32, cy + r*0.02, r*0.08, 0, Math.PI*2);
+  ctx.arc(cx + r*0.32, cy + r*0.02, r*0.08, 0, Math.PI*2);
+  ctx.fill();
+
+  // Smile
+  ctx.strokeStyle = 'rgba(60,40,30,0.6)';
+  ctx.lineWidth = Math.max(2, Math.round(h*0.006));
+  ctx.beginPath();
+  ctx.arc(cx, cy + r*0.18, r*0.25, 0.15*Math.PI, 0.85*Math.PI);
+  ctx.stroke();
+
+  // Last 7 days mini-chart
+  const chartW = Math.round(w * 0.55);
+  const chartH = Math.round(h * 0.16);
+  const chartX = pad;
+  const chartY = h - pad - chartH;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  const rr = Math.round(h*0.02);
+  ctx.beginPath();
+  // Rounded rect path (avoid relying on ctx.roundRect)
+  ctx.moveTo(chartX + rr, chartY);
+  ctx.lineTo(chartX + chartW - rr, chartY);
+  ctx.quadraticCurveTo(chartX + chartW, chartY, chartX + chartW, chartY + rr);
+  ctx.lineTo(chartX + chartW, chartY + chartH - rr);
+  ctx.quadraticCurveTo(chartX + chartW, chartY + chartH, chartX + chartW - rr, chartY + chartH);
+  ctx.lineTo(chartX + rr, chartY + chartH);
+  ctx.quadraticCurveTo(chartX, chartY + chartH, chartX, chartY + chartH - rr);
+  ctx.lineTo(chartX, chartY + rr);
+  ctx.quadraticCurveTo(chartX, chartY, chartX + rr, chartY);
+  ctx.closePath();
+  ctx.fill();
+
+  const max = Math.max(1, ...last7.map(d => d.count));
+  const barGap = Math.round(chartW * 0.02);
+  const barW = Math.floor((chartW - barGap * 8) / 7);
+
+  for (let i=0;i<7;i++) {
+    const v = last7[i].count;
+    const bh = Math.round((v / max) * (chartH - Math.round(h*0.05)));
+    const x = chartX + barGap + i * (barW + barGap);
+    const y = chartY + chartH - barGap - bh;
+
+    ctx.fillStyle = 'rgba(129, 214, 138, 0.85)';
+    ctx.fillRect(x, y, barW, bh);
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.78)';
+  ctx.font = `500 ${Math.round(h*0.035)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText('Last 7 days', chartX + Math.round(h*0.03), chartY + Math.round(h*0.02));
+
+  // Footer brand
+  ctx.fillStyle = 'rgba(255,255,255,0.70)';
+  ctx.font = `500 ${Math.round(h*0.032)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText('Sloth Flashcard Grove • offline-first', pad, h - pad + Math.round(h*0.01));
+}
+
+function renderSummaryPreview() {
+  const deck = getActiveDeck();
+  ui.summaryText.value = buildSessionSummaryText(deck);
+  setNotice(ui.summaryStatus, '');
+
+  const c = ui.summaryCanvas;
+  const ctx = c?.getContext('2d');
+  if (!c || !ctx) return;
+  ctx.clearRect(0, 0, c.width, c.height);
+  drawSummaryPostcard(ctx, c.width, c.height, deck);
+}
+
+function openSummaryDialog() {
+  renderSummaryPreview();
+  openDialog(ui.dlgSummary);
+}
+
+async function downloadSummaryPng() {
+  const deck = getActiveDeck();
+  const w = 1200;
+  const h = 630;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  drawSummaryPostcard(ctx, w, h, deck);
+
+  try {
+    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('no blob');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const safeDeck = (deck?.name || 'deck').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
+    a.download = `sfg-session-summary-${safeDeck || 'deck'}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch {
+    setNotice(ui.summaryStatus, 'Could not download PNG in this browser.');
+  }
+}
+
 // Events
 ui.btnDeck.addEventListener('click', () => { renderDeckListDialog(); openDialog(ui.dlgDeck); });
 ui.dlgNewDeck.addEventListener('click', () => plantNewDeck());
@@ -803,6 +1108,7 @@ ui.btnImport.addEventListener('click', () => { ui.importText.value=''; setNotice
 ui.btnDoImport.addEventListener('click', () => doImport());
 ui.btnExport.addEventListener('click', () => exportActiveDeck());
 ui.btnShare.addEventListener('click', () => openShareDialog());
+ui.btnSummary.addEventListener('click', () => openSummaryDialog());
 ui.btnHelp.addEventListener('click', () => openDialog(ui.dlgHelp));
 
 ui.btnCopyShare.addEventListener('click', () => {
@@ -850,6 +1156,25 @@ ui.btnShareNative.addEventListener('click', async () => {
   }
 });
 
+ui.btnCopySummary.addEventListener('click', () => {
+  const text = ui.summaryText.value || '';
+  if (!text) return;
+  navigator.clipboard?.writeText(text).then(() => {
+    setNotice(ui.summaryStatus, 'Copied.');
+  }).catch(() => {
+    setNotice(ui.summaryStatus, 'Could not copy automatically. Select and copy the text manually.');
+  });
+});
+
+ui.btnDownloadSummary.addEventListener('click', async () => {
+  await downloadSummaryPng();
+});
+
+ui.dlgSummary.addEventListener('close', () => {
+  // Clear any transient notices.
+  setNotice(ui.summaryStatus, '');
+});
+
 ui.btnFlip.addEventListener('click', () => flip());
 ui.btnSpeak.addEventListener('click', () => { if (CAN_SPEAK) speakVisibleSide(); });
 ui.btnStopSpeak.addEventListener('click', () => { if (CAN_SPEAK) stopSpeak(); });
@@ -863,13 +1188,16 @@ ui.btnEdit.addEventListener('click', () => openEdit());
 ui.btnSaveDeck.addEventListener('click', () => saveEdit());
 ui.btnDeleteDeck.addEventListener('click', () => deleteActiveDeck());
 ui.btnResetDay.addEventListener('click', () => {
-  state.today = { date: todayISO(), reviewed: 0 };
+  ensureStats();
+  const t = todayISO();
+  state.stats.daily[t] = 0;
+  state.today = { date: t, reviewed: 0 };
   saveState();
   renderAll();
 });
 
 window.addEventListener('keydown', (e) => {
-  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgHelp.open) return;
+  if (ui.dlgEdit.open || ui.dlgImport.open || ui.dlgDeck.open || ui.dlgShare.open || ui.dlgSummary.open || ui.dlgHelp.open) return;
 
   if (e.key === ' ') { e.preventDefault(); flip(); }
   if (e.key === '1') grade(0);

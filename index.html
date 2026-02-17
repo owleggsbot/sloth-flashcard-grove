@@ -60,6 +60,8 @@
         <button id="btnEdit" class="link" type="button">edit deck</button>
         <span class="dot">•</span>
         <button id="btnResetDay" class="link" type="button">reset today counter</button>
+        <span class="dot">•</span>
+        <button id="btnSummary" class="link" type="button" aria-haspopup="dialog">session summary</button>
       </div>
     </section>
 
@@ -187,6 +189,36 @@
         </div>
 
         <div id="shareStatus" class="notice" hidden></div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn" value="default">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Session summary dialog -->
+  <dialog id="dlgSummary" class="dlg">
+    <form method="dialog" class="dlg__frame">
+      <div class="dlg__head">
+        <div class="dlg__title">Session summary</div>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+      <div class="dlg__body">
+        <p class="p">Generate a shareable postcard (PNG) and a copyable text snippet. Works fully offline.</p>
+
+        <div class="summary">
+          <canvas id="summaryCanvas" class="summary__canvas" width="600" height="315" aria-label="Session summary postcard preview"></canvas>
+          <div class="summary__actions">
+            <button id="btnCopySummary" class="btn btn--primary" type="button">Copy text</button>
+            <button id="btnDownloadSummary" class="btn" type="button">Download PNG</button>
+            <div id="summaryStatus" class="notice" hidden></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="lbl" for="summaryText">Text snippet</label>
+          <textarea id="summaryText" class="ta mono" rows="5" readonly></textarea>
+        </div>
       </div>
       <div class="dlg__foot">
         <button class="btn" value="default">Done</button>
